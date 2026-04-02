@@ -241,10 +241,15 @@ MIT License
 
 ---
 
-## Author
+## Team
 
-**Rakesh Pedapudi**  
-AI Systems · Reinforcement Learning · Backend Engineering  
+**Team Name:** Ace Programmers  
+
+| Name | Role |
+|------|-----|
+| Rakesh Pedapudi | Team Lead · Backend · System Design |
+| Bantu Nageswara Rao | Development |
+| Akash Karthik Gummella | Development |
 
 ---
 
