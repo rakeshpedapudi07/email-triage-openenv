@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Email Triage — OpenEnv</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ── Reset ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #09090b;
+  --s1:        #111113;
+  --s2:        #18181b;
+  --s3:        #1f1f23;
+  --b1:        #27272a;
+  --b2:        #3f3f46;
+
+  --t1:        #fafafa;
+  --t2:        #a1a1aa;
+  --t3:        #52525b;
+
+  --blue:      #3b82f6;
+  --blue-bg:   rgba(59,130,246,0.08);
+  --blue-glow: rgba(59,130,246,0.18);
+
+  --green:     #22c55e;
+  --green-bg:  rgba(34,197,94,0.08);
+  --red:       #ef4444;
+  --red-bg:    rgba(239,68,68,0.08);
+  --amber:     #f59e0b;
+  --amber-bg:  rgba(245,158,11,0.08);
+
+  --mono: 'Geist Mono', 'JetBrains Mono', monospace;
+  --sans: 'Instrument Sans', system-ui, -apple-system, sans-serif;
+  --r:   6px;
+  --rl:  10px;
+  --ease: 150ms cubic-bezier(.4,0,.2,1);
+}
+
+html, body { height: 100%; overflow: hidden; }
+body {
+  background: var(--bg);
+  color: var(--t1);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--b2); border-radius: 9px; }
+
+/* ── Shell ─────────────────────────────────────────────────────────────────── */
+.shell { display: grid; grid-template-rows: 48px 1fr; height: 100vh; }
+.workspace { display: grid; grid-template-columns: 308px 1fr 328px; overflow: hidden; }
+
+/* ── Topbar ────────────────────────────────────────────────────────────────── */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px; border-bottom: 1px solid var(--b1); background: var(--s1);
+}
+.wordmark { font-size: 13.5px; font-weight: 600; letter-spacing: -.02em; color: var(--t1); }
+.wordmark em { font-style: normal; color: var(--t3); font-weight: 400; }
+.tbar-l { display: flex; align-items: center; gap: 14px; }
+.tbar-r { display: flex; align-items: center; gap: 10px; }
+.vr { width: 1px; height: 16px; background: var(--b1); }
+.env-chip {
+  font-family: var(--mono); font-size: 10.5px; color: var(--t3);
+  background: var(--s2); border: 1px solid var(--b1);
+  padding: 2px 8px; border-radius: var(--r);
+}
+.srv {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--t3);
+}
+.dot-wrap { position: relative; width: 7px; height: 7px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--t3); transition: background var(--ease); }
+.ring {
+  position: absolute; inset: -3px; border-radius: 50%;
+  border: 1px solid transparent; transition: border-color var(--ease);
+}
+.dot-wrap.on .dot { background: var(--green); }
+.dot-wrap.on .ring { border-color: var(--green); animation: ping 2s ease infinite; }
+@keyframes ping { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(2.4); opacity: 0; } }
+
+/* ── Columns ───────────────────────────────────────────────────────────────── */
+.col { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--b1); }
+.col:last-child { border-right: none; }
+
+.col-header {
+  display: flex; align-items: center; justify-content: space-between;
+  height: 38px; padding: 0 14px; border-bottom: 1px solid var(--b1); flex-shrink: 0;
+}
+.col-title {
+  font-size: 10.5px; font-weight: 600; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--t3);
+}
+.col-meta { font-size: 11px; color: var(--t3); font-family: var(--mono); }
+
+/* ── Task cards ────────────────────────────────────────────────────────────── */
+.task-scroller { overflow-y: auto; padding: 10px; flex-shrink: 0; }
+.task-list { display: flex; flex-direction: column; gap: 5px; }
+
+.task-card {
+  position: relative; padding: 10px 12px; border-radius: var(--rl);
+  border: 1px solid var(--b1); cursor: pointer; background: var(--s2);
+  transition: border-color var(--ease), background var(--ease);
+  overflow: hidden;
+}
+.task-card::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3px; background: transparent; transition: background var(--ease);
+}
+.task-card:hover { border-color: var(--b2); }
+.task-card.active { border-color: var(--blue); background: var(--blue-bg); }
+.task-card.active::before { background: var(--blue); }
+
+.tc-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+.tc-name { font-size: 12.5px; font-weight: 600; color: var(--t1); letter-spacing: -.01em; }
+.tc-desc { font-size: 11.5px; color: var(--t3); line-height: 1.4; }
+
+.pill {
+  font-size: 10px; font-weight: 600; font-family: var(--mono);
+  padding: 1px 7px; border-radius: 99px; letter-spacing: .03em;
+}
+.pill-easy   { background: var(--green-bg); color: var(--green); border: 1px solid rgba(34,197,94,.25); }
+.pill-medium { background: var(--amber-bg); color: var(--amber); border: 1px solid rgba(245,158,11,.25); }
+.pill-hard   { background: var(--red-bg);   color: var(--red);   border: 1px solid rgba(239,68,68,.25); }
+
+/* ── Divider ───────────────────────────────────────────────────────────────── */
+.hdivider { height: 1px; background: var(--b1); flex-shrink: 0; }
+
+/* ── Action pane ───────────────────────────────────────────────────────────── */
+.action-pane { padding: 12px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+
+.hint-box {
+  padding: 9px 11px; border-radius: var(--r);
+  border: 1px solid var(--b1); background: var(--s3);
+  font-size: 11.5px; color: var(--t3); line-height: 1.55;
+}
+.hint-box strong { color: var(--t2); font-weight: 600; }
+
+.field { display: flex; flex-direction: column; gap: 5px; }
+.flabel {
+  font-size: 10.5px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--t3);
+}
+
+.sel-wrap { position: relative; }
+.sel-wrap::after {
+  content: '';
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%) rotate(0);
+  border-left: 3.5px solid transparent; border-right: 3.5px solid transparent;
+  border-top: 4.5px solid var(--t3); pointer-events: none;
+}
+
+.fselect, .ftextarea {
+  width: 100%; background: var(--s3); border: 1px solid var(--b1);
+  color: var(--t1); border-radius: var(--r); padding: 7px 10px;
+  font-size: 12.5px; font-family: var(--sans); outline: none;
+  transition: border-color var(--ease), box-shadow var(--ease);
+  appearance: none; -webkit-appearance: none;
+}
+.fselect:focus, .ftextarea:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-glow);
+}
+.ftextarea {
+  resize: vertical; min-height: 68px;
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.65;
+}
+
+.field.hidden { display: none; }
+
+.btn-run {
+  width: 100%; height: 34px; background: var(--blue); color: #fff;
+  border: none; border-radius: var(--r); font-size: 12.5px; font-weight: 600;
+  font-family: var(--sans); cursor: pointer; letter-spacing: -.01em;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  transition: opacity var(--ease), transform var(--ease);
+  position: relative; overflow: hidden;
+}
+.btn-run:hover { opacity: .92; }
+.btn-run:active { transform: scale(.99); }
+.btn-run:disabled { background: var(--s3); color: var(--t3); cursor: not-allowed; opacity: 1; }
+.btn-run .spin {
+  width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.3);
+  border-top-color: #fff; border-radius: 50%; animation: spin .55s linear infinite; display: none;
+}
+.btn-run.busy .lbl { display: none; }
+.btn-run.busy .spin { display: block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.btn-ghost {
+  width: 100%; height: 30px; background: transparent; color: var(--t3);
+  border: 1px solid var(--b1); border-radius: var(--r); font-size: 12px;
+  font-family: var(--sans); cursor: pointer;
+  transition: color var(--ease), border-color var(--ease), background var(--ease);
+}
+.btn-ghost:hover { color: var(--t2); border-color: var(--b2); background: var(--s3); }
+
+/* ── Middle col ────────────────────────────────────────────────────────────── */
+.stepper {
+  display: flex; align-items: center; gap: 0; height: 38px;
+  padding: 0 14px; border-bottom: 1px solid var(--b1); flex-shrink: 0; overflow-x: auto;
+}
+.stepper::-webkit-scrollbar { height: 0; }
+
+.si {
+  display: flex; align-items: center; gap: 5px;
+  padding: 0 8px; height: 26px; border-radius: var(--r);
+  white-space: nowrap; flex-shrink: 0; cursor: default;
+}
+.si-num {
+  width: 17px; height: 17px; border-radius: 50%;
+  border: 1.5px solid var(--b2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9.5px; font-weight: 700; font-family: var(--mono);
+  color: var(--t3); transition: all var(--ease); flex-shrink: 0;
+}
+.si-lbl {
+  font-size: 11px; font-weight: 500; font-family: var(--mono);
+  color: var(--t3); transition: color var(--ease);
+}
+.sc { width: 20px; height: 1px; background: var(--b1); flex-shrink: 0; transition: background var(--ease); }
+
+.si.done .si-num { border-color: var(--green); background: var(--green-bg); color: var(--green); }
+.si.done .si-lbl { color: var(--green); }
+.si.active .si-num { border-color: var(--blue); background: var(--blue); color: #fff; }
+.si.active .si-lbl { color: var(--t1); font-weight: 600; }
+
+/* ── Done banner ───────────────────────────────────────────────────────────── */
+.done-bar {
+  display: none; align-items: center; gap: 9px;
+  margin: 10px 14px 0; padding: 9px 12px; border-radius: var(--rl);
+  border: 1px solid rgba(34,197,94,.35); background: var(--green-bg);
+  animation: fadeUp .25s ease forwards;
+}
+.done-bar.show { display: flex; }
+@keyframes fadeUp { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
+.done-check {
+  width: 18px; height: 18px; border-radius: 50%; background: var(--green);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.done-txt { font-size: 12px; color: var(--t2); }
+.done-score { margin-left: auto; font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--green); }
+
+/* ── Email empty ───────────────────────────────────────────────────────────── */
+.email-empty {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px; padding: 24px;
+}
+.ee-icon {
+  width: 36px; height: 36px; border-radius: var(--rl); border: 1px solid var(--b1);
+  display: flex; align-items: center; justify-content: center;
+}
+.ee-title { font-size: 13px; font-weight: 600; color: var(--t2); }
+.ee-sub { font-size: 12px; color: var(--t3); text-align: center; max-width: 210px; line-height: 1.5; }
+
+/* ── Email viewer ──────────────────────────────────────────────────────────── */
+.email-viewer { flex: 1; overflow-y: auto; padding: 14px; display: none; }
+.email-viewer.on { display: block; }
+
+.em-row {
+  display: grid; grid-template-columns: 56px 1fr;
+  padding: 5px 0; border-bottom: 1px solid var(--b1); gap: 8px; align-items: baseline;
+}
+.em-row:last-child { border-bottom: none; }
+.em-k { font-size: 11px; font-weight: 600; color: var(--t3); letter-spacing: .03em; }
+.em-v { font-size: 12.5px; color: var(--t2); }
+.em-subj { font-size: 13px; font-weight: 600; color: var(--t1); }
+
+.attach-tag {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 6px;
+  font-size: 11px; font-weight: 500; color: var(--t3);
+  background: var(--s3); border: 1px solid var(--b1); padding: 3px 9px; border-radius: 4px;
+}
+
+.em-div { height: 1px; background: var(--b1); margin: 12px 0; }
+.em-body {
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.75;
+  color: var(--t2); white-space: pre-wrap;
+  background: var(--s3); border: 1px solid var(--b1);
+  padding: 11px 13px; border-radius: var(--r);
+}
+
+/* ── Right col ─────────────────────────────────────────────────────────────── */
+.metrics {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid var(--b1); flex-shrink: 0;
+}
+.metric { padding: 9px 12px; border-right: 1px solid var(--b1); }
+.metric:last-child { border-right: none; }
+.mv {
+  font-size: 19px; font-weight: 700; font-family: var(--mono);
+  color: var(--t1); line-height: 1.2; letter-spacing: -.04em;
+  transition: color var(--ease);
+}
+.ml { font-size: 9.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--t3); margin-top: 2px; }
+
+/* ── Log ───────────────────────────────────────────────────────────────────── */
+.log-pane { flex: 1; overflow-y: auto; padding: 8px 12px; }
+.log-empty-state {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; height: 100%; gap: 9px; color: var(--t3);
+}
+.les-icon {
+  width: 30px; height: 30px; border: 1px solid var(--b1); border-radius: var(--r);
+  display: flex; align-items: center; justify-content: center;
+}
+.les-txt { font-size: 11.5px; text-align: center; max-width: 190px; line-height: 1.5; }
+
+.log-row {
+  display: grid; grid-template-columns: 42px 1fr;
+  gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--b1);
+  animation: fadeIn .18s ease forwards; opacity: 0;
+}
+.log-row:last-child { border-bottom: none; }
+@keyframes fadeIn { to { opacity: 1; } }
+
+.log-tag {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+  padding: 2px 5px; border-radius: 4px; letter-spacing: .03em;
+  text-align: center; align-self: start; line-height: 1.4;
+}
+.lt-start { background: var(--blue-bg);  color: var(--blue);  border: 1px solid rgba(59,130,246,.2); }
+.lt-step  { background: var(--s3);       color: var(--t3);    border: 1px solid var(--b1); }
+.lt-end   { background: var(--green-bg); color: var(--green); border: 1px solid rgba(34,197,94,.2); }
+.lt-err   { background: var(--red-bg);   color: var(--red);   border: 1px solid rgba(239,68,68,.2); }
+
+.log-body { min-width: 0; }
+.log-raw { font-family: var(--mono); font-size: 10.5px; color: var(--t3); line-height: 1.4; word-break: break-all; margin-bottom: 4px; }
+.log-kvs { display: flex; flex-wrap: wrap; gap: 5px; }
+.log-kv { display: flex; gap: 3px; font-size: 10.5px; font-family: var(--mono); }
+.lk { color: var(--t3); }
+.lv { font-weight: 600; }
+.lv-p { color: var(--green); }
+.lv-n { color: var(--red); }
+.lv-a { color: var(--amber); }
+
+/* ── Chart ─────────────────────────────────────────────────────────────────── */
+.chart-wrap { border-top: 1px solid var(--b1); padding: 11px 12px; flex-shrink: 0; }
+.chart-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+.chart-lbl { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--t3); }
+.chart-sum { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--t2); }
+.bar-wrap { display: flex; align-items: flex-end; gap: 4px; height: 50px; }
+.bar-col { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; min-width: 0; }
+.bar-fill { width: 100%; border-radius: 2px 2px 0 0; transition: height .35s cubic-bezier(.4,0,.2,1); min-height: 2px; }
+.bar-p { background: var(--green); opacity: .8; }
+.bar-n { background: var(--red); opacity: .8; }
+.bar-lbl { font-family: var(--mono); font-size: 9px; color: var(--t3); }
+.chart-none {
+  height: 50px; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: var(--t3); border: 1px dashed var(--b1); border-radius: var(--r);
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <div class="tbar-l">
+      <div class="wordmark">Email Triage <em>/ OpenEnv</em></div>
+      <div class="vr"></div>
+      <div class="env-chip">rl-environment</div>
+    </div>
+    <div class="tbar-r">
+      <div class="srv">
+        <div class="dot-wrap" id="dot"><div class="dot"></div><div class="ring"></div></div>
+        <span id="srv-txt">Connecting</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="workspace">
+
+    <!-- ── LEFT COL: Tasks + Actions ──────────────────────────────────────── -->
+    <div class="col">
+      <div class="col-header">
+        <span class="col-title">Tasks</span>
+      </div>
+
+      <div class="task-scroller">
+        <div class="task-list" id="task-list">
+          <div style="height:60px;border-radius:10px;background:var(--s2);border:1px solid var(--b1);"></div>
+          <div style="height:60px;border-radius:10px;background:var(--s2);border:1px solid var(--b1);margin-top:5px;opacity:.6;"></div>
+          <div style="height:60px;border-radius:10px;background:var(--s2);border:1px solid var(--b1);margin-top:5px;opacity:.35;"></div>
+        </div>
+      </div>
+
+      <div class="hdivider"></div>
+
+      <!-- Action controls -->
+      <div class="action-pane">
+        <div class="hint-box" id="hint">Select a task above, then click <strong>Start Episode</strong>.</div>
+
+        <div class="field" id="f-action">
+          <span class="flabel">Action</span>
+          <div class="sel-wrap">
+            <select class="fselect" id="sel-action" onchange="onActionChange()">
+              <option value="classify_email">classify_email</option>
+              <option value="set_priority">set_priority</option>
+              <option value="generate_response">generate_response</option>
+              <option value="archive_email">archive_email</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field" id="f-cat">
+          <span class="flabel">Category</span>
+          <div class="sel-wrap">
+            <select class="fselect" id="sel-cat">
+              <option value="work">work</option>
+              <option value="personal">personal</option>
+              <option value="spam">spam</option>
+              <option value="newsletter">newsletter</option>
+              <option value="support">support</option>
+              <option value="billing">billing</option>
+              <option value="other">other</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field hidden" id="f-pri">
+          <span class="flabel">Priority</span>
+          <div class="sel-wrap">
+            <select class="fselect" id="sel-pri">
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="urgent">urgent</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field hidden" id="f-resp">
+          <span class="flabel">Response text</span>
+          <textarea class="ftextarea" id="inp-resp" placeholder="Write a professional reply…"></textarea>
+        </div>
+
+        <button class="btn-run" id="btn-step" disabled onclick="doStep()">
+          <div class="spin"></div>
+          <span class="lbl">Start Episode</span>
+        </button>
+        <button class="btn-ghost" onclick="doReset()">Reset Episode</button>
+      </div>
+    </div>
+
+    <!-- ── MIDDLE COL: Email viewer ───────────────────────────────────────── -->
+    <div class="col">
+      <div class="col-header">
+        <span class="col-title">Inbox</span>
+        <span class="col-meta" id="email-task-id"></span>
+      </div>
+
+      <!-- Stepper -->
+      <div class="stepper">
+        <div class="si" id="si-1"><div class="si-num">1</div><span class="si-lbl">classify</span></div>
+        <div class="sc"></div>
+        <div class="si" id="si-2"><div class="si-num">2</div><span class="si-lbl">priority</span></div>
+        <div class="sc"></div>
+        <div class="si" id="si-3"><div class="si-num">3</div><span class="si-lbl">response</span></div>
+        <div class="sc"></div>
+        <div class="si" id="si-4"><div class="si-num">4</div><span class="si-lbl">archive</span></div>
+      </div>
+
+      <!-- Done banner -->
+      <div class="done-bar" id="done-bar">
+        <div class="done-check">
+          <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
+            <path d="M1 3.5L3 5.5L8 1" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <span class="done-txt">Episode complete</span>
+        <span class="done-score" id="done-score"></span>
+      </div>
+
+      <!-- Empty state -->
+      <div class="email-empty" id="email-empty">
+        <div class="ee-icon">
+          <svg width="18" height="14" viewBox="0 0 18 14" fill="none">
+            <rect x="1" y="1" width="16" height="12" rx="2" stroke="#52525b" stroke-width="1.3"/>
+            <path d="M1 4L9 8.5L17 4" stroke="#52525b" stroke-width="1.3"/>
+          </svg>
+        </div>
+        <div class="ee-title">No email loaded</div>
+        <div class="ee-sub">Select a task and start an episode to load the inbox.</div>
+      </div>
+
+      <!-- Email content -->
+      <div class="email-viewer" id="email-viewer">
+        <div id="em-meta"></div>
+        <div class="em-div"></div>
+        <div class="em-body" id="em-body"></div>
+      </div>
+    </div>
+
+    <!-- ── RIGHT COL: Metrics + Log + Chart ───────────────────────────────── -->
+    <div class="col">
+
+      <!-- Metrics -->
+      <div class="metrics">
+        <div class="metric"><div class="mv" id="m-steps">0</div><div class="ml">Steps</div></div>
+        <div class="metric"><div class="mv" id="m-reward">0.00</div><div class="ml">Reward</div></div>
+        <div class="metric"><div class="mv" id="m-score" style="color:var(--t3)">—</div><div class="ml">Score</div></div>
+        <div class="metric"><div class="mv" id="m-phase" style="font-size:11px;padding-top:5px;color:var(--t3)">idle</div><div class="ml">Phase</div></div>
+      </div>
+
+      <!-- Log header -->
+      <div class="col-header">
+        <span class="col-title">Episode Log</span>
+        <span class="col-meta" id="log-ct"></span>
+      </div>
+
+      <!-- Log entries -->
+      <div class="log-pane" id="log-pane">
+        <div class="log-empty-state">
+          <div class="les-icon">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+              <rect x=".65" y=".65" width="11.7" height="11.7" rx="1.8" stroke="#52525b" stroke-width="1.1"/>
+              <path d="M3.5 5h6M3.5 8h4" stroke="#52525b" stroke-width="1.1" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="les-txt">No events yet. Start an episode to see logs.</div>
+        </div>
+      </div>
+
+      <!-- Chart -->
+      <div class="chart-wrap">
+        <div class="chart-hdr">
+          <span class="chart-lbl">Reward / step</span>
+          <span class="chart-sum" id="chart-total"></span>
+        </div>
+        <div class="chart-none" id="chart-none">No data</div>
+        <div class="bar-wrap" id="chart-bars" style="display:none"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const BASE = window.location.origin;
+let task = null, started = false, rewards = [], steps = 0, totalR = 0;
+
+const PHASE_IDX = { classify:'si-1', priority:'si-2', response_or_archive:'si-3', archive:'si-4', done:null };
+const PHASE_ORDER = ['classify','priority','response_or_archive','archive'];
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    const ok = (await fetch(`${BASE}/health`)).ok;
+    q('#dot').classList.toggle('on', ok);
+    q('#srv-txt').textContent = ok ? 'Connected' : 'Server error';
+  } catch { q('#srv-txt').textContent = 'Offline'; }
+
+  try {
+    const data = await (await fetch(`${BASE}/tasks`)).json();
+    q('#task-list').innerHTML = data.tasks.map(t => `
+      <div class="task-card" id="tc-${t.task_id}" onclick="selectTask('${t.task_id}','${esc(t.name)}')">
+        <div class="tc-row">
+          <span class="tc-name">${esc(t.name)}</span>
+          <span class="pill pill-${t.difficulty}">${t.difficulty}</span>
+        </div>
+        <div class="tc-desc">${esc(t.description)}</div>
+      </div>`).join('');
+  } catch {
+    q('#task-list').innerHTML = '<div style="color:var(--red);font-size:12px">Failed to load tasks.</div>';
+  }
+}
+
+function q(sel) { return document.querySelector(sel); }
+
+// ── Task selection ────────────────────────────────────────────────────────────
+function selectTask(id) {
+  document.querySelectorAll('.task-card').forEach(c => c.classList.remove('active'));
+  const card = document.getElementById(`tc-${id}`);
+  if (card) card.classList.add('active');
+  task = id;
+  q('#email-task-id').textContent = id;
+  q('#btn-step').disabled = false;
+  q('#btn-step .lbl').textContent = 'Start Episode';
+  hint('Click <strong>Start Episode</strong> to load the email and begin.');
+  started = false;
+}
+
+// ── Reset ─────────────────────────────────────────────────────────────────────
+async function doReset() {
+  if (!task) return;
+  await beginEpisode();
+}
+
+// ── Step / Start ──────────────────────────────────────────────────────────────
+async function doStep() {
+  if (!started) { await beginEpisode(); return; }
+  if (!task) return;
+
+  const action = q('#sel-action').value;
+  const payload = { task_id: task, action_type: action };
+  if (action === 'classify_email')    payload.category      = q('#sel-cat').value;
+  if (action === 'set_priority')      payload.priority      = q('#sel-pri').value;
+  if (action === 'generate_response') payload.response_text = q('#inp-resp').value;
+
+  busy(true);
+  try {
+    const res = await (await fetch(`${BASE}/step`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })).json();
+
+    steps++;
+    const r = res.reward ?? 0;
+    totalR = res.info?.total_reward ?? (totalR + r);
+    rewards.push(r);
+
+    const phase = res.info?.phase || 'classify';
+    const score = res.done ? (res.info?.score ?? '—') : '—';
+
+    updateMetrics(steps, totalR, score, phase);
+    updateStepper(phase);
+    renderChart();
+
+    const al = payload.category ? `${action}(${payload.category})`
+             : payload.priority ? `${action}(${payload.priority})`
+             : action;
+
+    addLog(res.error ? 'err' : 'step',
+      `[STEP] step=${steps} action=${al} reward=${r.toFixed(2)} done=${res.done} error=${res.error||'null'}`,
+      res.error
+        ? { reward: r, error: res.error }
+        : { reward: r, done: res.done, phase }
+    );
+
+    if (res.error) {
+      hint(`<strong>Action rejected:</strong> ${res.error}`);
+    } else if (res.done) {
+      addLog('end',
+        `[END] success=true steps=${steps} rewards=${rewards.map(x=>x.toFixed(2)).join(',')}`,
+        { score: res.info?.score }
+      );
+      showDone(res.info?.score);
+      q('#btn-step').disabled = true;
+      hint('Episode complete. Click <strong>Reset Episode</strong> to run again.');
+    } else if (res.next_expected_action) {
+      setPhaseAction(res.next_expected_action);
+      phaseHint(res.next_expected_action);
+    }
+  } catch(e) {
+    hint(`<strong>Request failed:</strong> ${e.message}`);
+  } finally {
+    busy(false);
+  }
+}
+
+async function beginEpisode() {
+  if (!task) { hint('Select a task first.'); return; }
+  busy(true);
+  try {
+    const res = await (await fetch(`${BASE}/reset`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: task }),
+    })).json();
+
+    rewards = []; steps = 0; totalR = 0; started = true;
+    updateMetrics(0, 0, '—', 'classify');
+    renderEmail(res.observation);
+    clearLog();
+    renderChart();
+    hideDone();
+    updateStepper('classify');
+    addLog('start', `[START] task=${task} env=email-triage-openenv`, {});
+    setPhaseAction('classify_email');
+    hint('Step 1 of 4 — <strong>Classify</strong> the email into a category.');
+    q('#btn-step .lbl').textContent = 'Execute Action';
+    q('#btn-step').disabled = false;
+  } catch(e) {
+    hint(`<strong>Reset failed:</strong> ${e.message}`);
+  } finally {
+    busy(false);
+  }
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function hint(html) { q('#hint').innerHTML = html; }
+function busy(on) { q('#btn-step').classList.toggle('busy', on); }
+
+function onActionChange() {
+  const v = q('#sel-action').value;
+  q('#f-cat').classList.toggle('hidden', v !== 'classify_email');
+  q('#f-pri').classList.toggle('hidden', v !== 'set_priority');
+  q('#f-resp').classList.toggle('hidden', v !== 'generate_response');
+}
+
+function setPhaseAction(action) {
+  const sel = q('#sel-action');
+  if ([...sel.options].some(o => o.value === action)) sel.value = action;
+  onActionChange();
+}
+
+function phaseHint(action) {
+  const map = {
+    classify_email:    'Step 1 of 4 — <strong>Classify</strong> the email into a category.',
+    set_priority:      'Step 2 of 4 — Set the <strong>priority</strong> level.',
+    generate_response: 'Step 3 of 4 — <strong>Write a reply</strong> (skip if not applicable).',
+    archive_email:     'Step 4 of 4 — <strong>Archive</strong> to complete the episode.',
+  };
+  hint(map[action] || `Next: <strong>${action}</strong>`);
+}
+
+function updateStepper(phase) {
+  const idx = PHASE_ORDER.indexOf(phase);
+  ['si-1','si-2','si-3','si-4'].forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('done','active');
+    if (phase === 'done' || i < idx) el.classList.add('done');
+    else if (PHASE_ORDER[i] === phase) el.classList.add('active');
+  });
+}
+
+function renderEmail(obs) {
+  q('#email-empty').style.display = 'none';
+  const v = q('#email-viewer');
+  v.classList.add('on');
+  q('#em-meta').innerHTML = `
+    <div class="em-row"><span class="em-k">Subject</span><span class="em-v em-subj">${esc(obs.subject)}</span></div>
+    <div class="em-row"><span class="em-k">From</span><span class="em-v">${esc(obs.sender)}</span></div>
+    <div class="em-row"><span class="em-k">Time</span><span class="em-v">${esc(obs.received_at)}</span></div>
+    ${obs.has_attachment ? `<div class="em-row"><span class="em-k">Files</span><span class="em-v"><span class="attach-tag"><svg width="9" height="11" viewBox="0 0 9 11" fill="none"><rect x=".6" y=".6" width="7.8" height="9.8" rx="1.4" stroke="#52525b" stroke-width="1.1"/><path d="M2.5 3.5h4M2.5 5.5h4M2.5 7.5h2.5" stroke="#52525b" stroke-width="1" stroke-linecap="round"/></svg>attachment</span></span></div>` : ''}
+  `;
+  q('#em-body').textContent = obs.body;
+}
+
+function updateMetrics(s, r, score, phase) {
+  q('#m-steps').textContent = s;
+  q('#m-reward').textContent = typeof r === 'number' ? r.toFixed(2) : r;
+  const sc = q('#m-score');
+  sc.textContent = typeof score === 'number' ? score.toFixed(2) : score;
+  sc.style.color = typeof score === 'number'
+    ? (score >= .8 ? 'var(--green)' : score >= .5 ? 'var(--amber)' : 'var(--red)')
+    : 'var(--t3)';
+  const ph = q('#m-phase');
+  ph.textContent = phase;
+  ph.style.color = phase === 'done' ? 'var(--green)' : 'var(--t2)';
+  ph.style.fontSize = phase.length > 8 ? '10px' : '11px';
+}
+
+function showDone(score) {
+  const bar = q('#done-bar'); bar.classList.add('show');
+  q('#done-score').textContent = typeof score === 'number' ? `Score ${score.toFixed(2)}` : 'Complete';
+}
+function hideDone() { q('#done-bar').classList.remove('show'); }
+
+function clearLog() {
+  q('#log-pane').innerHTML = `
+    <div class="log-empty-state">
+      <div class="les-icon">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+          <rect x=".65" y=".65" width="11.7" height="11.7" rx="1.8" stroke="#52525b" stroke-width="1.1"/>
+          <path d="M3.5 5h6M3.5 8h4" stroke="#52525b" stroke-width="1.1" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="les-txt">No events yet.</div>
+    </div>`;
+  q('#log-ct').textContent = '';
+}
+
+function addLog(type, raw, detail) {
+  const pane = q('#log-pane');
+  const empty = pane.querySelector('.log-empty-state');
+  if (empty) empty.remove();
+
+  const labels = { start:'START', step:'STEP', end:'END', err:'ERR' };
+  const cls    = { start:'lt-start', step:'lt-step', end:'lt-end', err:'lt-err' };
+
+  const kvs = Object.entries(detail).map(([k, v]) => {
+    let c = '';
+    if (k === 'reward') c = v > 0 ? 'lv-p' : v < 0 ? 'lv-n' : 'lv-a';
+    if (k === 'done' && v)   c = 'lv-p';
+    if (k === 'error' && v)  c = 'lv-n';
+    if (k === 'score' && typeof v === 'number') c = 'lv-p';
+    return `<div class="log-kv"><span class="lk">${esc(k)}:</span><span class="lv ${c}">${esc(String(v))}</span></div>`;
+  }).join('');
+
+  const row = document.createElement('div');
+  row.className = 'log-row';
+  row.innerHTML = `
+    <div><span class="log-tag ${cls[type]}">${labels[type]}</span></div>
+    <div class="log-body">
+      <div class="log-raw">${esc(raw)}</div>
+      ${kvs ? `<div class="log-kvs">${kvs}</div>` : ''}
+    </div>`;
+  pane.appendChild(row);
+  pane.scrollTop = pane.scrollHeight;
+  q('#log-ct').textContent = pane.querySelectorAll('.log-row').length;
+}
+
+function renderChart() {
+  const bars = q('#chart-bars'), none = q('#chart-none'), total = q('#chart-total');
+  if (!rewards.length) { bars.style.display='none'; none.style.display='flex'; total.textContent=''; return; }
+  bars.style.display='flex'; none.style.display='none';
+  const sum = rewards.reduce((a,b)=>a+b,0);
+  total.textContent = (sum>=0?'+':'')+sum.toFixed(2);
+  total.style.color = sum>=0 ? 'var(--green)' : 'var(--red)';
+  const max = Math.max(...rewards.map(Math.abs), .01);
+  bars.innerHTML = rewards.map(r => {
+    const h = Math.max(2, Math.round((Math.abs(r)/max)*42));
+    return `<div class="bar-col">
+      <div class="bar-fill ${r>=0?'bar-p':'bar-n'}" style="height:${h}px"></div>
+      <div class="bar-lbl">${r.toFixed(2)}</div>
+    </div>`;
+  }).join('');
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+init();
+</script>
+</body>
+</html>

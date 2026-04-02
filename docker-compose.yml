@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  # ── Main Environment Server ────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: email-triage-openenv:latest
+    container_name: email_triage_env
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - LOG_DIR=/app/logs
+    volumes:
+      - ./logs:/app/logs        # Persist episode logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # ── Inference Agent (optional, run manually) ───────────────────────────────
+  # docker compose run --rm agent --task easy_triage --verbose
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    image: email-triage-agent:latest
+    container_name: email_triage_agent
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      - ENV_BASE_URL=http://api:8000
+      - API_BASE_URL=${API_BASE_URL:-https://api-inference.huggingface.co/v1}
+      - MODEL_NAME=${MODEL_NAME:-mistralai/Mistral-7B-Instruct-v0.3}
+      - HF_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - ./logs:/logs
+    profiles:
+      - agent   # only starts with: docker compose --profile agent up
+    entrypoint: ["python", "inference.py"]
+    command: ["--task", "easy_triage", "--verbose"]

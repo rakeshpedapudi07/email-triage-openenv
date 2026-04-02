@@ -1,0 +1,234 @@
+# openenv.yaml — Email Triage OpenEnv
+# OpenEnv Round 1 Compliant Specification
+
+name: email-triage-openenv
+version: "1.0.0"
+description: >
+  An RL-style environment for intelligent email triage.
+  Agents must classify, prioritize, optionally respond to, and archive emails.
+  Rewards are shaped to encourage correct classification, priority, and efficient processing.
+
+author: "OpenEnv Hackathon Submission"
+license: MIT
+
+# ── Environment API ────────────────────────────────────────────────────────────
+api:
+  base_url: "http://localhost:8000"
+  endpoints:
+    reset:
+      method: POST
+      path: /reset
+      description: Reset environment for a task, returns initial email observation
+      request_body:
+        task_id: string
+      response:
+        task_id: string
+        observation: EmailObservation
+        info: object
+
+    step:
+      method: POST
+      path: /step
+      description: Take one action in the environment
+      request_body:
+        task_id: string
+        action_type: string   # classify_email | set_priority | generate_response | archive_email
+        category: string      # optional — required for classify_email
+        priority: string      # optional — required for set_priority
+        response_text: string # optional — required for generate_response
+      response:
+        observation: EmailObservation
+        reward: float
+        done: boolean
+        truncated: boolean
+        error: string | null
+        next_expected_action: string | null
+        info: object
+
+    state:
+      method: GET
+      path: /state
+      description: Get current environment state
+      query_params:
+        task_id: string
+      response:
+        task_id: string
+        step_count: integer
+        done: boolean
+        current_phase: string
+        classification: string | null
+        priority: string | null
+        has_response: boolean
+        total_reward: float
+
+    tasks:
+      method: GET
+      path: /tasks
+      description: List all available tasks
+
+    health:
+      method: GET
+      path: /health
+      description: Health check endpoint
+
+# ── Observation Space ─────────────────────────────────────────────────────────
+observation_space:
+  type: object
+  description: An email to be triaged
+  fields:
+    subject:
+      type: string
+      description: Email subject line
+    sender:
+      type: string
+      description: Sender email address
+    body:
+      type: string
+      description: Email body text
+    received_at:
+      type: string
+      format: ISO 8601 datetime
+    has_attachment:
+      type: boolean
+    metadata:
+      type: object
+      description: Additional signals (sender domain, spam score, etc.)
+
+# ── Action Space ──────────────────────────────────────────────────────────────
+action_space:
+  type: discrete_sequential
+  description: Agent must execute actions in the correct phase order
+  flow: "classify_email → set_priority → generate_response (optional) → archive_email"
+  actions:
+    - name: classify_email
+      description: Classify email into a category
+      required_params:
+        - name: category
+          type: enum
+          values: [work, personal, spam, newsletter, support, billing, other]
+      phase: 1
+
+    - name: set_priority
+      description: Assign priority level to email
+      required_params:
+        - name: priority
+          type: enum
+          values: [low, medium, high, urgent]
+      phase: 2
+
+    - name: generate_response
+      description: Generate a reply to the email (skip for spam/newsletter)
+      required_params:
+        - name: response_text
+          type: string
+          max_length: 2000
+      phase: 3
+      optional: true
+
+    - name: archive_email
+      description: Archive email and complete the episode
+      required_params: []
+      phase: 4
+
+# ── Reward Space ──────────────────────────────────────────────────────────────
+reward_space:
+  type: float
+  range: [-1.0, 1.0]
+  description: Cumulative episode reward, normalized to [0, 1] in final score
+  breakdown:
+    correct_classification:  +0.30
+    wrong_classification:    -0.15
+    correct_priority:        +0.25
+    wrong_priority:          -0.10
+    appropriate_response:    +0.20
+    unnecessary_response:    -0.10
+    out_of_order_action:     -0.05
+    episode_completion:      +0.25
+
+# ── Tasks ─────────────────────────────────────────────────────────────────────
+tasks:
+  - id: easy_triage
+    name: Easy Email Triage
+    difficulty: easy
+    max_steps: 8
+    description: >
+      Triage a clear, unambiguous work email. Category and priority are obvious.
+    correct_category: work
+    correct_priority: high
+    response_required: true
+    grader:
+      type: exact_match
+      score_range: [0.0, 1.0]
+      weights:
+        classification: 0.35
+        priority: 0.30
+        response: 0.15
+        completion: 0.20
+
+  - id: medium_triage
+    name: Medium Email Triage
+    difficulty: medium
+    max_steps: 10
+    description: >
+      Triage an angry customer billing email. Requires distinguishing billing vs support.
+    correct_category: billing
+    correct_priority: urgent
+    response_required: true
+    grader:
+      type: exact_match
+      score_range: [0.0, 1.0]
+      weights:
+        classification: 0.30
+        priority: 0.35
+        response: 0.20
+        completion: 0.15
+
+  - id: hard_triage
+    name: Hard Email Triage
+    difficulty: hard
+    max_steps: 12
+    description: >
+      Identify a sophisticated phishing/spam email. Agent must resist responding.
+    correct_category: spam
+    correct_priority: low
+    response_required: false
+    grader:
+      type: exact_match
+      score_range: [0.0, 1.0]
+      weights:
+        classification: 0.40
+        priority: 0.25
+        response: 0.15
+        completion: 0.20
+
+# ── Scoring ───────────────────────────────────────────────────────────────────
+scoring:
+  type: normalized_reward
+  formula: "score = max(0.0, min(1.0, total_reward / max_possible_reward))"
+  max_possible_reward: 1.0
+  min_score: 0.0
+  max_score: 1.0
+
+# ── Runtime ───────────────────────────────────────────────────────────────────
+runtime:
+  framework: fastapi
+  language: python
+  python_version: "3.11"
+  dependencies:
+    - fastapi>=0.110.0
+    - uvicorn>=0.29.0
+    - pydantic>=2.0.0
+    - requests>=2.31.0
+    - openai>=1.0.0
+
+# ── Deployment ────────────────────────────────────────────────────────────────
+deployment:
+  docker:
+    image: email-triage-openenv
+    port: 8000
+    health_check: /health
+
+  huggingface_spaces:
+    sdk: docker
+    app_port: 8000
+    health_check: /health
