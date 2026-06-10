@@ -3,7 +3,7 @@
 An RL-style environment for intelligent email triage, designed to simulate real-world decision-making workflows using LLM agents and reward-based optimization.
 
 Built for **OpenEnv Round 1**.
-  
+    
 ---
 
 ## Overview
