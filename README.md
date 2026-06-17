@@ -8,7 +8,7 @@ Built for **OpenEnv Round 1**.
 
 ## Overview
 
-Email overload is a major productivity bottleneck.
+Email overload is a major productivity bottleneck.   
 
 This project models email triage as a **sequential decision-making problem**, where an agent must:
 
