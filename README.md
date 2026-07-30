@@ -11,7 +11,7 @@ Built for **OpenEnv Round 1**.
 Email overload is a major productivity bottleneck.   
 
 This project models email triage as a **sequential decision-making problem**, where an agent must:
-
+     
 1. Classify the email  
 2. Assign correct priority  
 3. Generate response (if needed)  
