@@ -253,4 +253,3 @@ MIT License
 
 ---
 
-*Built for OpenEnv Hackathon 🏆*
